@@ -1,0 +1,8 @@
+---
+vm_name_srv: SRV
+vm_name_csr: CSR
+vm_name_cli-r: CLI-R
+vm_name_fw: FW
+vm_name_srv1: SRV-1
+vm_name_srv2: SRV-2
+vm_name_dc: DC

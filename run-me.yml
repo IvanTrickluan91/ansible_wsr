@@ -1,0 +1,338 @@
+---
+- hosts: routers
+  #  handlers:
+    #   - name: restart ssh
+      #     service:
+        #       name: ssh
+          #        state: restarted
+          #   enabled: yes
+  
+  tasks:
+    # - name: configure ssh
+    # copy:
+    #   src: ./sshd_config
+    #  dest: /etc/ssh/sshd_config
+    #  mode: "0777"
+    #notify:
+    #  - restart ssh
+   - name: install ufw
+     apt:
+       pkg: 
+         - ufw
+         - strongswan
+   - name: configure ufw ssh
+     ufw:
+       rule: allow
+       port: 1111
+   - name: configure ufw http
+     ufw:
+       rule: allow
+       port: 80
+   - name: configure ufw 8080
+     ufw:
+       rule: allow
+       port: 8080
+   - name: configure ufw 1834
+     ufw:
+       rule: allow
+       port: 1834
+   - name: configure ufw 1337
+     ufw:
+       state: enabled
+       rule: allow
+       port: 1337
+ 
+    
+- hosts: CSR
+  vars_files:
+    - ./vars.yml
+  handlers:
+    - name: restart ufw
+      service:
+        name: ufw
+        state: restarted
+        enabled: yes
+    - name: restart machine
+      reboot:
+    - name: restart ipsec
+      shell: ipsec restart
+    - name: start gre.up
+      shell: /etc/gre.up
+
+  tasks:
+    - name: Change forward policy
+      lineinfile:
+        path: /etc/default/ufw
+        regexp: '^DEFAULT_FORWARD_POLICY="DROP"'
+        line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
+        backrefs: yes
+      notify:
+        - restart ufw
+    - name: add NAT to ufw
+      blockinfile:
+        path: /etc/ufw/before.rules
+        block: | 
+          # NAT table rules
+          *nat
+          :POSTROUTING ACCEPT [0:0]
+          
+          # Forward traffic through eth0 - Change to match you out-interface
+          -A POSTROUTING -s 192.168.0.0/16 -o ens192 -j MASQUERADE
+          
+          # don't delete the 'COMMIT' line or these nat table rules won't
+          # be processed
+          COMMIT
+        insertbefore: "^# 1Don't delete these required lines"
+      notify:
+        - restart ufw
+    - name: change hostname csr
+      hostname:
+        name: "{{ vm_name_csr }}"
+      notify:
+        - restart machine
+    - name: configure gre tunnel csr
+      copy: 
+        src: ./gre.up_csr
+        dest: /etc/gre.up
+        mode: "0777"
+      notify: 
+        - start gre.up
+      ignore_errors: true
+    - name: set crontab csr
+      lineinfile:
+        path: /etc/crontab
+        line: "@reboot root /etc/gre.up"
+        insertafter: EOF
+    - name: ipsec secrets csr
+      lineinfile:
+        path: /etc/ipsec.secrets
+        line: '200.100.200.100 200.100.100.100 : PSK "2022"'
+        insertafter: EOF
+    - name: configure ipsec csr
+      copy:
+        src: ./ipsec_csr.conf
+        dest: /etc/ipsec.conf
+        mode: "0777"
+      notify: restart ipsec
+- hosts: FW
+  vars_files:
+    - ./vars.yml
+  handlers:
+    - name: Restart ufw
+      service:
+        name: ufw
+        state: restarted
+        enabled: yes
+    - name: restart machine
+      reboot:
+    - name: restart ipsec
+      shell: ipsec restart
+    - name: start gre.up
+      shell: /etc/gre.up
+  tasks:
+    - name: configure ufw ssh
+      ufw:
+        state: enabled
+        rule: allow
+        port: 1111
+    - name: Change forward policy
+      lineinfile:
+        path: /etc/default/ufw
+        regexp: '^DEFAULT_FORWARD_POLICY="DROP"'
+        line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
+        backrefs: yes
+      notify:
+        - restart ufw
+    - name: add NAT to ufw
+      blockinfile:
+        path: /etc/ufw/before.rules
+        block: | 
+          # NAT table rules
+          *nat
+          :POSTROUTING ACCEPT [0:0]
+          
+          # Forward traffic through eth0 - Change to match you out-interface
+          -A POSTROUTING -s 172.20.0.0/16 -o ens192 -j MASQUERADE
+          
+          # don't delete the 'COMMIT' line or these nat table rules won't
+          # be processed
+          COMMIT
+          
+        insertbefore: "^# 1Don't delete these required lines"
+      notify:
+        - Restart ufw
+    - name: change hostname fw
+      hostname:
+        name: "{{ vm_name_fw }}"
+      notify:
+        - restart machine
+    - name: configure gre tunnel fw
+      copy: 
+        src: ./gre.up_fw
+        dest: /etc/gre.up
+        mode: "0777"
+      notify:
+        - start gre.up
+      ignore_errors: true
+    - name: set crontab fw
+      lineinfile:
+        path: /etc/crontab
+        line: "@reboot root /etc/gre.up"
+        insertafter: EOF
+    - name: ipsec secrets fw
+      lineinfile:
+        path: /etc/ipsec.secrets
+        line: '200.100.200.100 200.100.100.100 : PSK "2022"'
+        insertafter: EOF
+    - name: configure ipsec fw
+      copy:
+        src: ./ipsec_fw.conf
+        dest: /etc/ipsec.conf
+        mode: "0777"
+      notify: restart ipsec
+- hosts: 172.20.20.1
+  tasks:
+    - name: add static route to branch
+      shell: ip route add 192.168.0.0/16 via 10.5.5.1
+      ignore_errors: true
+- hosts: 192.168.100.1
+  tasks:
+    - name: add static route to office
+      shell: ip route add 172.20.0.0/16 via 10.5.5.2
+      ignore_errors: true
+
+
+
+- hosts: all
+  # handlers:
+  # - name: restart ssh
+  #   service:
+  #     name: ssh
+  #     state: restarted
+  #     enabled: yes
+  vars_files:
+    - ./users.yml
+  tasks:
+    # - name: Configure ssh
+    # copy:
+    #   src: ./sshd_config
+    #   dest: /etc/ssh/sshd_config
+    #   mode: "0777"
+    # notify:
+    #   - restart ssh
+    - name: create user
+      user:
+        name: '{{ admin_name }}'
+        group: sudo
+        password: '{{ admin_pass }}'
+        shell: /bin/bash
+    - name: install programs
+      apt:
+        pkg:
+          - pip
+          - curl
+          - vim
+          - lynx
+          - docker
+          - docker.io
+          - chrony
+- hosts: servers_office
+  handlers:
+    - name: restart chrony
+      service:
+        name: chronyd
+        state: restarted
+        enabled: yes
+    - name: restart keepalived
+      service:
+        name: keepalived
+        state: restarted
+        enabled: yes
+  tasks:
+    - name: configure chrony
+      copy:
+        src: ./chrony.conf
+        dest: /etc/chrony/chrony.conf
+        mode: "0777"
+      notify:
+        - restart chrony
+    - name: install programs
+      apt:
+        pkg:
+          - docker-compose
+          - keepalived
+    - name: copy ntp_check
+      copy:
+        src: ./ntp_check
+        dest: /usr/ntp_check
+        mode: "0777"
+- hosts: 172.20.30.100
+  vars_files:
+    - ./vars.yml
+  handlers:
+    - name: restart keepalived
+      service:
+        name: keepalived
+        state: restarted
+    - name: restart machine
+      reboot:
+  tasks:
+    - name: change hostname srv1
+      hostname:
+        name: "{{ vm_name_srv1 }}"
+      notify:
+        - restart machine
+    - name: copy keealived conf
+      copy:
+        src: ./keepalived_srv1.conf
+        dest: /etc/keepalived/keepalived.conf
+        mode: "0644"
+      notify: 
+        - restart keepalived
+- hosts: 172.20.30.20
+  vars_files:
+    - ./vars.yml
+  handlers:
+    - name: restart machine
+      reboot:
+    - name: restart keepalived
+      service:
+        name: keepalived
+        state: restarted
+  tasks:
+    - name: change hostname srv2
+      hostname:
+        name: "{{ vm_name_srv2 }}"
+      notify:
+        - restart machine
+    - name: copy keealived conf
+      copy:
+        src: ./keepalived_srv2.conf
+        dest: /etc/keepalived/keepalived.conf
+        mode: "0644"
+      notify:
+        - restart keepalived
+- hosts: 172.20.10.100
+  vars_files:
+    - ./vars.yml
+  handlers:
+    - name: restart machine
+      reboot:
+  tasks:
+    - name: change hostname dc
+      hostname:
+        name: "{{ vm_name_dc }}"
+      notify:
+        - restart machine
+- hosts: 192.168.200.200
+  vars_files:
+    - ./vars.yml
+  handlers:
+    - name: restart machine
+      reboot:
+  tasks:
+    - name: change hostname srv
+      hostname:
+        name: "{{ vm_name_srv }}"
+      notify:
+        - restart machine
