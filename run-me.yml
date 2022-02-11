@@ -1,20 +1,20 @@
 ---
 - hosts: routers
-  #  handlers:
-    #   - name: restart ssh
-      #     service:
-        #       name: ssh
-          #        state: restarted
-          #   enabled: yes
+  handlers:
+    - name: restart ssh
+      service:
+        name: ssh
+        state: restarted
+        enabled: yes
   
   tasks:
-    # - name: configure ssh
-    # copy:
-    #   src: ./sshd_config
-    #  dest: /etc/ssh/sshd_config
-    #  mode: "0777"
-    #notify:
-    #  - restart ssh
+   - name: configure ssh
+     copy:
+       src: ./sshd_config
+       dest: /etc/ssh/sshd_config
+       mode: "0777"
+     notify:
+       - restart ssh
    - name: install ufw
      apt:
        pkg: 
@@ -23,25 +23,13 @@
    - name: configure ufw ssh
      ufw:
        rule: allow
-       port: 1111
-   - name: configure ufw http
-     ufw:
-       rule: allow
-       port: 80
-   - name: configure ufw 8080
-     ufw:
-       rule: allow
-       port: 8080
-   - name: configure ufw 1834
-     ufw:
-       rule: allow
-       port: 1834
-   - name: configure ufw 1337
-     ufw:
-       state: enabled
-       rule: allow
-       port: 1337
- 
+       port: "{{ item }}" 
+     with_items:
+       - 1111
+       - 80
+       - 8080
+       - 1834
+       - 1337
     
 - hosts: CSR
   vars_files:
@@ -58,6 +46,7 @@
       shell: ipsec restart
     - name: start gre.up
       shell: /etc/gre.up
+      ignore_errors: true
 
   tasks:
     - name: Change forward policy
@@ -118,7 +107,7 @@
   vars_files:
     - ./vars.yml
   handlers:
-    - name: Restart ufw
+    - name: restart ufw
       service:
         name: ufw
         state: restarted
@@ -129,6 +118,7 @@
       shell: ipsec restart
     - name: start gre.up
       shell: /etc/gre.up
+      ignore_errors: true
   tasks:
     - name: configure ufw ssh
       ufw:
@@ -160,7 +150,7 @@
           
         insertbefore: "^# 1Don't delete these required lines"
       notify:
-        - Restart ufw
+        - restart ufw
     - name: change hostname fw
       hostname:
         name: "{{ vm_name_fw }}"
@@ -204,22 +194,22 @@
 
 
 - hosts: all
-  # handlers:
-  # - name: restart ssh
-  #   service:
-  #     name: ssh
-  #     state: restarted
-  #     enabled: yes
+  handlers:
+    - name: restart ssh
+      service:
+        name: ssh
+        state: restarted
+        enabled: yes
   vars_files:
     - ./users.yml
   tasks:
-    # - name: Configure ssh
-    # copy:
-    #   src: ./sshd_config
-    #   dest: /etc/ssh/sshd_config
-    #   mode: "0777"
-    # notify:
-    #   - restart ssh
+    - name: Configure ssh
+      copy:
+        src: ./sshd_config
+        dest: /etc/ssh/sshd_config
+        mode: "0777"
+      notify:
+        - restart ssh
     - name: create user
       user:
         name: '{{ admin_name }}'
