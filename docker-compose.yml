@@ -1,0 +1,13 @@
+version: "3.9"
+services:
+  postgresql:
+    image: postgresql
+    container_name: postgresql
+    restart: always
+  phpmyadmin:
+    image: phpmyadmin
+    container_nam: phpmyadmin
+    links: 
+      - postgresql
+    restart: always
+

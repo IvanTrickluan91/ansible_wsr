@@ -1,4 +1,58 @@
 ---
+#- hosts: 172.20.10.100 192.168.200.200
+#tasks:
+# - name: install python
+# apt:
+# pkg:
+# - python2
+#         - pip
+#   - name: install docker with python
+#     pip:
+#       name: "{{item}}"
+#     with_items:
+#       - docker
+#       - docker-compose
+#   - name: deploy postgresql and phpadmin
+#     docker_compose:
+#       definition:
+#         project_name: mycompose
+#         version: "3.9"
+#         services:
+#           db:
+#             image: postgresql
+#             restart: always
+#           pma:
+#             image: phpmyadmin
+#             restart: always
+#             links:
+#               - db
+#             ports:
+#               - "80:80"
+
+
+- hosts: servers_office
+  tasks:
+    - name: install docker
+      apt:
+        pkg:
+          - docker
+          - docker.io
+    - name: copy dockerfile into server
+      copy:
+        src: ./dockerfile
+        dest: /home/
+    - name: create docker image
+      community.docker.docker_image:
+        name: nginx_by_ivan:firstver
+        build:
+          path: /home/
+        source: build
+    - name: deploy docker-container
+      community.docker.docker_container:
+        name: nginx
+        image: nginx_by_ivan:firstver
+        published_ports: '8080:4444'
+        restart_policy: always
 - hosts: routers
   handlers:
     - name: restart ssh
@@ -180,6 +234,30 @@
         dest: /etc/ipsec.conf
         mode: "0777"
       notify: restart ipsec
+    - name: install nginx
+      apt:
+        pkg:
+          - nginx
+    - name: configure reverse-proxy on nginx
+      blockinfile:
+        create: yes
+        path: /etc/nginx/conf.d/nginx.conf
+        block: |
+          upstream beckend {
+            server 172.20.30.20:8080 fail_timeout=5s max_fails=3;
+            server 172.20.30.100:8080 backup;
+          }
+          server {
+            listen 80;
+
+            location / {
+              proxy_pass http://beckend;
+            }
+          }
+    - name: restart nginx
+      service:
+        name: nginx
+        state: reloaded
 - hosts: 172.20.20.1
   tasks:
     - name: add static route to branch
